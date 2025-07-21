@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.3
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_log:/var/lib/zookeeper/log
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.3
+    hostname: kafka
+    container_name: kafka
+    ports:
+      - "9093:9093"
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: CLIENT://0.0.0.0:9093,INTERNAL://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: CLIENT://host.docker.internal:9093,INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CLIENT:PLAINTEXT,INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+
+  spark-master:
+    image: bitnami/spark:3.5.0
+    hostname: spark-master
+    container_name: spark-master
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_DIRS=/opt/bitnami/spark/tmp
+      - SPARK_LOG_DIR=/opt/bitnami/spark/logs
+    volumes:
+      - spark_master_data:/opt/bitnami/spark/data
+      - spark_master_logs:/opt/bitnami/spark/logs
+      - .:/app # <--- NEW LINE: Mount your project directory into /app on spark-master
+
+  spark-worker:
+    image: bitnami/spark:3.5.0
+    hostname: spark-worker
+    container_name: spark-worker
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_CORES=1
+      - SPARK_WORKER_MEMORY=1G
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_DIRS=/opt/bitnami/spark/tmp
+      - SPARK_LOG_DIR=/opt/bitnami/spark/logs
+    volumes:
+      - spark_worker_data:/opt/bitnami/spark/data
+      - spark_worker_logs:/opt/bitnami/spark/logs
+
+  python-app:
+    build: .
+    hostname: python-app
+    container_name: supplychaindata-python-app-1
+    volumes:
+      - .:/app
+    command: sleep infinity
+    depends_on:
+      - kafka
+      - spark-master
+    environment:
+      KAFKA_BROKER: kafka:29092
+      SPARK_MASTER_URL: spark://spark-master:7077
+
+volumes:
+  zookeeper_data:
+  zookeeper_log:
+  kafka_data:
+  spark_master_data:
+  spark_master_logs:
+  spark_worker_data:
+  spark_worker_logs:
